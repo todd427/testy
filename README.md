@@ -12,7 +12,7 @@ Health: `https://testy-foxxelabs.fly.dev/healthz`
 |---|---|
 | `ping` | connect → list → call round trip |
 | `echo(text)` | argument marshalling both directions |
-| `whoami` | client identity: User-Agent, negotiated `MCP-Protocol-Version`, session id, origin, Beirt leg tag |
+| `whoami` | client identity: User-Agent, negotiated `MCP-Protocol-Version`, session id, origin, Beirt leg tag. Session id is blank by design — the server is stateless, so it never issues one; it is reported if a client or proxy supplies it |
 | `search(query)` / `fetch(id)` | ChatGPT deep-research tool-shape requirement (read-only, canned corpus with `TESTY-OK-*` markers) |
 | resource `testy://readme` | whether the client surfaces MCP resources |
 | prompt `wiring_report` | whether the client surfaces MCP prompts |
@@ -50,6 +50,19 @@ shows both legs interleaved.
 fly deploy
 curl https://testy-foxxelabs.fly.dev/healthz
 ```
+
+## <span style="color:#2e86c1">Tests</span>
+
+```
+pip install -r requirements-dev.txt
+pytest
+```
+
+`tests/test_tools.py` drives the server in-memory (tool list, `echo`
+marshalling, the `search`→`fetch` round trip, the resource and prompt
+probes). `tests/test_http.py` runs the real ASGI app under uvicorn on an
+ephemeral port, because `whoami` reads HTTP headers — that is where the
+Beirt leg tags and `/healthz` are checked.
 
 ## <span style="color:#2e86c1">Scope guard</span>
 

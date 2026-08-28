@@ -49,7 +49,9 @@ mcp = FastMCP(
 
 def _client_fingerprint() -> dict:
     """What the server can see about the calling client."""
-    headers = get_http_headers() or {}
+    # `mcp-session-id` is in FastMCP's default strip-list, so it has to
+    # be asked for by name or the field below is always blank.
+    headers = get_http_headers(include={"mcp-session-id"}) or {}
     fp = {
         "user_agent": headers.get("user-agent", ""),
         "mcp_protocol_version": headers.get("mcp-protocol-version", ""),
