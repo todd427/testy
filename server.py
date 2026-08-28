@@ -121,8 +121,15 @@ mcp.add_middleware(InitializeLogger())
 
 # ---------------------------------------------------------------- tools
 
+# Every tool here is a probe: it reads, it never writes, and it never
+# reaches outside this process. Without these hints a client has to
+# assume the worst — ChatGPT labelled `echo` PUBLIC WRITE / OPEN WORLD
+# / DESTRUCTIVE — and the deep-research path expects `search` and
+# `fetch` to declare themselves read-only.
+READ_ONLY = {"readOnlyHint": True, "openWorldHint": False}
 
-@mcp.tool
+
+@mcp.tool(annotations=READ_ONLY)
 def ping() -> dict:
     """Liveness check. Returns server identity and UTC time."""
     _log_call("ping")
@@ -134,7 +141,7 @@ def ping() -> dict:
     }
 
 
-@mcp.tool
+@mcp.tool(annotations=READ_ONLY)
 def echo(text: str) -> dict:
     """Round-trip test: returns the text, its reverse, and its length.
 
@@ -144,7 +151,7 @@ def echo(text: str) -> dict:
     return {"text": text, "reversed": text[::-1], "length": len(text)}
 
 
-@mcp.tool
+@mcp.tool(annotations=READ_ONLY)
 def whoami() -> dict:
     """Reflects back what the server sees about the calling client:
     User-Agent, negotiated MCP protocol version, session id, origin,
@@ -178,7 +185,7 @@ _CORPUS = {
 }
 
 
-@mcp.tool
+@mcp.tool(annotations=READ_ONLY)
 def search(query: str) -> dict:
     """Search the tester corpus. Returns all documents regardless of
     query (this is a wiring test, not a search engine). Shape matches
@@ -193,7 +200,7 @@ def search(query: str) -> dict:
     }
 
 
-@mcp.tool
+@mcp.tool(annotations=READ_ONLY)
 def fetch(id: str) -> dict:
     """Fetch one tester document by id. Shape matches ChatGPT's
     deep-research `fetch` requirement.

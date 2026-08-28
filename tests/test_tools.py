@@ -32,6 +32,17 @@ async def test_lists_exactly_the_documented_tools(client):
     assert names == DOCUMENTED_TOOLS
 
 
+async def test_every_tool_declares_itself_read_only(client):
+    # Without these, a client assumes the worst: ChatGPT labelled `echo`
+    # PUBLIC WRITE / OPEN WORLD / DESTRUCTIVE. `search` and `fetch` in
+    # particular must read as read-only for the deep-research path.
+    for tool in await client.list_tools():
+        ann = tool.annotations
+        assert ann is not None, f"{tool.name} declares no annotations"
+        assert ann.readOnlyHint is True, tool.name
+        assert ann.openWorldHint is False, tool.name
+
+
 async def test_every_tool_describes_itself(client):
     # A wiring tester is useless if the client lists a tool with no
     # explanation of what proving it proves.
