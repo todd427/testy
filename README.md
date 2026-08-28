@@ -3,8 +3,15 @@
 One no-auth, stateless, Streamable HTTP MCP server whose only job is to
 prove a client is wired up, and to identify **which** client connected.
 
-Endpoint after deploy: `https://testy-foxxelabs.fly.dev/mcp`
-Health: `https://testy-foxxelabs.fly.dev/healthz`
+**Deploy your own** — it takes one `fly deploy` and the whole point is
+that the endpoint is yours. See [Deploy](#deploy) below. Your endpoint is
+then `https://<your-app>.fly.dev/mcp`, health at `/healthz`.
+
+There is a hosted instance at `https://testy-foxxelabs.fly.dev/mcp` you
+can point a client at to try it. Treat it as a best-effort demo: it is a
+single scale-to-zero machine, it is unauthenticated, it logs every call
+it receives, and it may change or disappear without notice. Do not build
+anything on it.
 
 ## <span style="color:#2e86c1">Tools</span>
 
@@ -50,7 +57,7 @@ is why older instructions dead-end.
    Developer mode. Flagged *elevated risk*; the same switch also sits at
    the bottom of Settings → Plugins.
 2. `chatgpt.com/plugins` → the **+** beside the search box.
-3. Name `Testy`, Connection **Server URL**, the `/mcp` URL,
+3. Name `Testy`, Connection **Server URL**, your `/mcp` URL,
    Authentication **No Auth** — it defaults to OAuth.
 4. Tick "I understand and want to continue", then Create.
 5. Per conversation: composer **+** → Testy. The connector is invisible
@@ -86,10 +93,15 @@ shows both legs interleaved.
 
 ## <span style="color:#2e86c1">Deploy</span>
 
+Set `app` in `fly.toml` to your own name first, then:
+
 ```
+fly apps create <your-app>
 fly deploy
-curl https://testy-foxxelabs.fly.dev/healthz
+curl https://<your-app>.fly.dev/healthz
 ```
+
+No secrets, no volumes, no database — there is nothing else to set up.
 
 ## <span style="color:#2e86c1">Tests</span>
 
