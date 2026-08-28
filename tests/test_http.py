@@ -6,6 +6,9 @@ actually connected", and it reads HTTP headers — so it can only be
 tested honestly over the wire.
 """
 
+import json
+import logging
+
 import httpx
 import server as testy
 
@@ -141,3 +144,32 @@ async def test_full_wiring_report_sequence_over_http(http_client):
 
         fetched = (await client.call_tool("fetch", {"id": "doc-1"})).data
         assert "TESTY-OK-1" in fetched["text"]
+
+
+# ------------------------------------------- initialize-time identity
+
+
+async def test_initialize_is_logged_with_the_client_identity(http_client, caplog):
+    # The ChatGPT gap: openai-mcp/1.0.0 never sends the
+    # MCP-Protocol-Version header, so whoami reports "" for it. The
+    # initialize request carries the version and the client's own name
+    # regardless, and on a stateless server this log line is the only
+    # place either is ever visible.
+    with caplog.at_level(logging.INFO, logger="testy"):
+        async with http_client() as client:
+            await client.call_tool("ping", {})
+
+    records = [r.getMessage() for r in caplog.records if r.getMessage().startswith("INIT ")]
+    assert records, "initialize was not logged"
+
+    rec = json.loads(records[-1].removeprefix("INIT "))
+    assert rec["protocol_version"], "protocol version missing from the INIT record"
+    assert rec["client_name"], "client name missing from the INIT record"
+    assert "http" in rec
+
+
+async def test_whoami_redacts_the_forwarded_client_ip(http_client):
+    async with http_client(headers={"X-Forwarded-For": "203.0.113.7, 9.129.58.33"}) as client:
+        data = (await client.call_tool("whoami", {})).data
+    assert "203.0.113.7" not in data["x_forwarded_for"]
+    assert data["x_forwarded_for"].startswith("<redacted>")

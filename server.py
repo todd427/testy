@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers, get_http_request
+from fastmcp.server.middleware import Middleware
 
 SERVER_NAME = "testy"
 VERSION = "0.1.0"
@@ -47,6 +48,21 @@ mcp = FastMCP(
 )
 
 
+def _redact_forwarded_for(value: str) -> str:
+    """Drop the originating address from an X-Forwarded-For chain.
+
+    ChatGPT forwards the end user's real IP as the leftmost hop, so an
+    unredacted log accumulates a record of where this server's users
+    sit. Testy exists to identify which *client* connected, not to
+    collect addresses, so the leftmost hop is replaced. The proxy hops
+    are kept — they still show the request path.
+    """
+    hops = [hop.strip() for hop in value.split(",") if hop.strip()]
+    if not hops:
+        return ""
+    return ", ".join(["<redacted>"] + hops[1:])
+
+
 def _client_fingerprint() -> dict:
     """What the server can see about the calling client."""
     # `mcp-session-id` is in FastMCP's default strip-list, so it has to
@@ -57,7 +73,7 @@ def _client_fingerprint() -> dict:
         "mcp_protocol_version": headers.get("mcp-protocol-version", ""),
         "mcp_session_id": headers.get("mcp-session-id", ""),
         "origin": headers.get("origin", ""),
-        "x_forwarded_for": headers.get("x-forwarded-for", ""),
+        "x_forwarded_for": _redact_forwarded_for(headers.get("x-forwarded-for", "")),
         "beirt_conversation": headers.get("x-beirt-conversation", ""),
     }
     try:
@@ -75,6 +91,32 @@ def _log_call(tool: str, extra: dict | None = None) -> None:
     if extra:
         rec["args"] = extra
     log.info("CALL %s", json.dumps(rec, default=str))
+
+
+class InitializeLogger(Middleware):
+    """Log what a client declares when it initializes.
+
+    ChatGPT (`openai-mcp/1.0.0`) never sends the `MCP-Protocol-Version`
+    header on later requests, so `whoami` reports "" for it. The
+    initialize request carries the version and the client's own name
+    either way, and on a stateless server this hook is the only place
+    that information is ever visible — nothing retains it afterwards.
+    """
+
+    async def on_initialize(self, context, call_next):
+        params = getattr(context.message, "params", None)
+        info = getattr(params, "clientInfo", None)
+        rec = {
+            "protocol_version": getattr(params, "protocolVersion", "") or "",
+            "client_name": getattr(info, "name", "") or "",
+            "client_version": getattr(info, "version", "") or "",
+            "http": _client_fingerprint(),
+        }
+        log.info("INIT %s", json.dumps(rec, default=str))
+        return await call_next(context)
+
+
+mcp.add_middleware(InitializeLogger())
 
 
 # ---------------------------------------------------------------- tools

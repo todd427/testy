@@ -150,3 +150,29 @@ async def test_wiring_report_prompt_names_every_tool(client):
     rendered = (await client.get_prompt("wiring_report", {})).messages[0].content.text
     for tool in DOCUMENTED_TOOLS:
         assert tool in rendered, tool
+
+
+# ------------------------------------------------ forwarded-for privacy
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("", ""),
+        ("   ", ""),
+        ("2a02:8086:cad::1", "<redacted>"),
+        ("1.2.3.4, 9.129.58.33", "<redacted>, 9.129.58.33"),
+        ("1.2.3.4, 9.129.58.33, 66.241.125.175", "<redacted>, 9.129.58.33, 66.241.125.175"),
+        (" 1.2.3.4 ,  9.129.58.33 ", "<redacted>, 9.129.58.33"),
+    ],
+)
+def test_forwarded_for_drops_the_originating_hop(raw, expected):
+    assert testy._redact_forwarded_for(raw) == expected
+
+
+def test_forwarded_for_never_echoes_the_client_address():
+    # The point of the redaction: the end-user IP ChatGPT forwards must
+    # not survive into anything the server returns or logs.
+    assert "2a02:8086:cad::1" not in testy._redact_forwarded_for(
+        "2a02:8086:cad::1, 9.129.58.33, 66.241.125.175"
+    )

@@ -12,7 +12,7 @@ Health: `https://testy-foxxelabs.fly.dev/healthz`
 |---|---|
 | `ping` | connect → list → call round trip |
 | `echo(text)` | argument marshalling both directions |
-| `whoami` | client identity: User-Agent, negotiated `MCP-Protocol-Version`, session id, origin, Beirt leg tag. Session id is blank by design — the server is stateless, so it never issues one; it is reported if a client or proxy supplies it |
+| `whoami` | client identity: User-Agent, `MCP-Protocol-Version`, session id, origin, Beirt leg tag — each reported only if the client actually sends it. Session id is blank by design (stateless, so none is ever issued). ChatGPT sends no protocol-version header, so that field is blank for it too — see the `INIT` log line below |
 | `search(query)` / `fetch(id)` | ChatGPT deep-research tool-shape requirement (read-only, canned corpus with `TESTY-OK-*` markers) |
 | resource `testy://readme` | whether the client surfaces MCP resources |
 | prompt `wiring_report` | whether the client surfaces MCP prompts |
@@ -20,6 +20,18 @@ Health: `https://testy-foxxelabs.fly.dev/healthz`
 Every call is logged server-side with the client fingerprint —
 `flyer:app_logs` on `testy-foxxelabs` shows the server's view of each
 wiring attempt.
+
+ChatGPT forwards the end user's real IP as the leftmost
+`X-Forwarded-For` hop. Testy replaces it with `<redacted>` before
+logging or returning it — it identifies clients, it does not collect
+addresses. The proxy hops are kept, so the request path is still
+visible.
+
+Each connection also logs one `INIT` line carrying what the client
+declared at `initialize`: the protocol version and its own name and
+version. That is the only place a stateless server ever sees either,
+and it is how you identify a client like ChatGPT that sends no
+`MCP-Protocol-Version` header on later requests.
 
 ## <span style="color:#2e86c1">Wiring checklist per client</span>
 
