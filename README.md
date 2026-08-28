@@ -35,22 +35,50 @@ and it is how you identify a client like ChatGPT that sends no
 
 ## <span style="color:#2e86c1">Wiring checklist per client</span>
 
-### ChatGPT
-Settings → enable Developer Mode (Plus/Pro/Business/Enterprise/Edu) →
-add connector with the `/mcp` URL, auth: none. Then in a chat, enable
-the app and run the `wiring_report` sequence. For the deep-research /
-data-only path, `search` + `fetch` are the two tools it will use.
+Only ChatGPT has actually been walked. The rest are written from docs —
+which is how the ChatGPT entry was written too, and every menu name in
+it turned out to be wrong. Treat the unverified ones accordingly.
 
-### Gemini
-Web app → connected/custom apps → add MCP server URL. A connected
-custom app then works in Spark on web and mobile. Gemini CLI:
-add to `mcp.json` as an HTTP server. Gemini Enterprise wants OAuth or a
-GCP service-account token — out of scope for this tester.
+Illustrated version, with what ChatGPT was observed to do once
+connected: <https://claude.ai/code/artifact/0e8d8e49-d9b7-48f0-a2c4-609851454176>
 
-### Claude
-Settings → Connectors → add custom connector, `/mcp` URL, no auth.
+### ChatGPT — verified 2026-08-28
+Custom MCP servers live under **Plugins**, not "Connectors". The rename
+is why older instructions dead-end.
 
-### Beirt
+1. Developer mode: Settings → Security and login → Advanced security →
+   Developer mode. Flagged *elevated risk*; the same switch also sits at
+   the bottom of Settings → Plugins.
+2. `chatgpt.com/plugins` → the **+** beside the search box.
+3. Name `Testy`, Connection **Server URL**, the `/mcp` URL,
+   Authentication **No Auth** — it defaults to OAuth.
+4. Tick "I understand and want to continue", then Create.
+5. Per conversation: composer **+** → Testy. The connector is invisible
+   to the model until this is done, and it is the step people miss.
+
+It identifies as `openai-mcp/1.0.0`, sends no `MCP-Protocol-Version`
+header, initializes once per connection rather than per call, forwards
+the end user's IP as the leftmost `X-Forwarded-For` hop, adds
+`display_url`/`display_title` to search results, and surfaces neither
+resources nor prompts. It caches the tool manifest — hit **Refresh** in
+the plugin panel after changing anything the server advertises. For the
+deep-research / data-only path, `search` + `fetch` are the two tools it
+will use.
+
+### Gemini — unverified
+Web app → connected/custom apps → add MCP server URL. A connected custom
+app then works in Spark on web and mobile. Gemini CLI: register it as an
+HTTP server (`httpUrl`, which is distinct from the SSE and stdio forms —
+check current CLI docs). Gemini Enterprise wants OAuth or a GCP
+service-account token, so it is out of scope for a no-auth probe.
+
+### Claude — unverified
+Settings → Connectors → add custom connector, `/mcp` URL, no auth. Worth
+running next: Claude should surface the `testy://readme` resource and the
+`wiring_report` prompt that ChatGPT ignored entirely, which is the
+contrast those two probes exist to measure.
+
+### Beirt — unverified
 Point each conversation leg at the same `/mcp` URL with header
 `X-Beirt-Conversation: leg-A` / `leg-B` (or `?tag=`). `whoami` reflects
 it back, so each leg can prove which leg it is, and the server log
