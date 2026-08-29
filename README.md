@@ -111,6 +111,35 @@ Point each conversation leg at the same `/mcp` URL with header
 back, so each leg can prove which leg it is, and the server log shows
 both legs interleaved.
 
+## <span style="color:#2e86c1">What the probes have measured</span>
+
+Measured server-side, from the log — not from what a client said about
+itself. Both clients were asked directly to read `testy://readme` and use
+`wiring_report`; neither request ever reached the server.
+
+| | ChatGPT | Claude |
+|---|---|---|
+| User-Agent on tool calls | `openai-mcp/1.0.0` | `Claude-User` |
+| User-Agent at registration | same | `python-httpx/…` — different caller |
+| `clientInfo` at `initialize` | `openai-mcp` / `1.0.0` | `Anthropic` / `1.0.0` |
+| `MCP-Protocol-Version` header | never sent | `2025-11-25` |
+| initializes | per connection, not per call | per connection |
+| surfaces resources | **no** — never requested | **no** — never requested |
+| surfaces prompts | **no** — never requested | **no** — never requested |
+| rewrites `search` results | adds `display_url`, `display_title` | no |
+
+So the two capability probes have their answer: **neither major client
+exposes MCP resources or prompts from a custom connector.** Both were
+explicit about it when asked, and the log agrees — the absence is a
+request never made, not a request that failed. Claude went as far as
+trying `fetch(id="readme")` as a workaround, which is in the log as a
+tool call with those arguments.
+
+The identity findings are the argument for `whoami` reporting every
+field rather than trusting one: ChatGPT is identifiable by User-Agent
+and gives nothing in the protocol header, Claude is the reverse at
+registration time, and neither populates the session id.
+
 ## <span style="color:#2e86c1">Deploy</span>
 
 Set `app` in `fly.toml` to your own name first, then:
