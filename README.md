@@ -19,14 +19,16 @@ anything on it.
 |---|---|
 | `ping` | connect → list → call round trip |
 | `echo(text)` | argument marshalling both directions |
-| `whoami` | client identity: User-Agent, `MCP-Protocol-Version`, session id, origin, Beirt leg tag — each reported only if the client actually sends it. Session id is blank by design (stateless, so none is ever issued). ChatGPT sends no protocol-version header, so that field is blank for it too — see the `INIT` log line below |
+| `whoami` | client identity: User-Agent, `MCP-Protocol-Version`, session id, origin, conversation tag — each reported only if the client actually sends it. Session id is blank by design (stateless, so none is ever issued). ChatGPT sends no protocol-version header, so that field is blank for it too — see the `INIT` log line below |
 | `search(query)` / `fetch(id)` | ChatGPT deep-research tool-shape requirement (read-only, canned corpus with `TESTY-OK-*` markers) |
-| resource `testy://readme` | whether the client surfaces MCP resources |
-| prompt `wiring_report` | whether the client surfaces MCP prompts |
+| resource `testy://readme` | whether the client surfaces MCP resources — reads are logged, so this is answerable server-side |
+| prompt `wiring_report` | whether the client surfaces MCP prompts — likewise logged |
 
 Every call is logged server-side with the client fingerprint —
 `flyer:app_logs` on `testy-foxxelabs` shows the server's view of each
-wiring attempt.
+wiring attempt. Each record carries a `kind` of `tool`, `resource` or
+`prompt`, so a log answers not just which tools a client called but
+whether it ever surfaced the resource and prompt at all.
 
 ChatGPT forwards the end user's real IP as the leftmost
 `X-Forwarded-For` hop. Testy replaces it with `<redacted>` before
@@ -43,7 +45,7 @@ and it is how you identify a client like ChatGPT that sends no
 ## <span style="color:#2e86c1">Wiring checklist per client</span>
 
 ChatGPT has been walked end to end; Claude has been walked as far as the
-handshake. Gemini and Beirt are written from docs — which is how the
+handshake. The rest are written from docs — which is how the
 ChatGPT entry was written too, and every menu name in it turned out to
 be wrong. Both clients that have been checked had moved their menus.
 Treat the unverified ones accordingly.
@@ -103,11 +105,11 @@ It **does** send the `MCP-Protocol-Version` header (`2025-11-25`), which
 ChatGPT never does, so `whoami` reports a protocol version for Claude
 and blank for ChatGPT.
 
-### Beirt — unverified
+### Dual-conversation clients — unverified
 Point each conversation leg at the same `/mcp` URL with header
-`X-Beirt-Conversation: leg-A` / `leg-B` (or `?tag=`). `whoami` reflects
-it back, so each leg can prove which leg it is, and the server log
-shows both legs interleaved.
+`X-Conversation-Tag: leg-A` / `leg-B` (or `?tag=`). `whoami` reflects it
+back, so each leg can prove which leg it is, and the server log shows
+both legs interleaved.
 
 ## <span style="color:#2e86c1">Deploy</span>
 
@@ -132,7 +134,7 @@ pytest
 marshalling, the `search`→`fetch` round trip, the resource and prompt
 probes). `tests/test_http.py` runs the real ASGI app under uvicorn on an
 ephemeral port, because `whoami` reads HTTP headers — that is where the
-Beirt leg tags and `/healthz` are checked.
+conversation tags and `/healthz` are checked.
 
 ## <span style="color:#2e86c1">Scope guard</span>
 

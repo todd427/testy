@@ -95,13 +95,13 @@ def test_initialize_issues_no_session_id_when_stateless(http_base):
     assert "mcp-session-id" not in response.headers
 
 
-# --------------------------------------------------------- Beirt legs
+# ------------------------------------------------- conversation legs
 
 
-async def test_beirt_header_is_reflected(http_client):
-    async with http_client(headers={"X-Beirt-Conversation": "leg-A"}) as client:
+async def test_conversation_tag_header_is_reflected(http_client):
+    async with http_client(headers={"X-Conversation-Tag": "leg-A"}) as client:
         data = (await client.call_tool("whoami", {})).data
-    assert data["beirt_conversation"] == "leg-A"
+    assert data["conversation_tag"] == "leg-A"
 
 
 async def test_query_tag_is_reflected(http_client):
@@ -111,22 +111,22 @@ async def test_query_tag_is_reflected(http_client):
 
 
 async def test_the_two_legs_are_distinguishable(http_client):
-    # The whole point of the Beirt path: each leg proves which leg it is
+    # The whole point of the tag: each leg proves which leg it is
     # against the same URL.
-    async with http_client(headers={"X-Beirt-Conversation": "leg-A"}) as a:
+    async with http_client(headers={"X-Conversation-Tag": "leg-A"}) as a:
         leg_a = (await a.call_tool("whoami", {})).data
-    async with http_client(headers={"X-Beirt-Conversation": "leg-B"}) as b:
+    async with http_client(headers={"X-Conversation-Tag": "leg-B"}) as b:
         leg_b = (await b.call_tool("whoami", {})).data
 
-    assert leg_a["beirt_conversation"] == "leg-A"
-    assert leg_b["beirt_conversation"] == "leg-B"
-    assert leg_a["beirt_conversation"] != leg_b["beirt_conversation"]
+    assert leg_a["conversation_tag"] == "leg-A"
+    assert leg_b["conversation_tag"] == "leg-B"
+    assert leg_a["conversation_tag"] != leg_b["conversation_tag"]
 
 
 async def test_an_untagged_client_reports_no_leg(http_client):
     async with http_client() as client:
         data = (await client.call_tool("whoami", {})).data
-    assert data["beirt_conversation"] == ""
+    assert data["conversation_tag"] == ""
 
 
 # ------------------------------------------------- end-to-end over HTTP
@@ -173,3 +173,47 @@ async def test_whoami_redacts_the_forwarded_client_ip(http_client):
         data = (await client.call_tool("whoami", {})).data
     assert "203.0.113.7" not in data["x_forwarded_for"]
     assert data["x_forwarded_for"].startswith("<redacted>")
+
+
+# ------------------------------------------- resource and prompt probes
+
+
+async def test_reading_the_resource_is_logged(http_client, caplog):
+    # These two probes exist to reveal which clients surface resources
+    # and prompts — and until now they were the only things in the
+    # server that left no trace, so the question was unanswerable from
+    # the server side.
+    with caplog.at_level(logging.INFO, logger="testy"):
+        async with http_client() as client:
+            await client.read_resource("testy://readme")
+
+    records = [json.loads(r.getMessage().removeprefix("CALL "))
+               for r in caplog.records if r.getMessage().startswith("CALL ")]
+    resources = [r for r in records if r["kind"] == "resource"]
+    assert resources, "reading the resource logged nothing"
+    assert resources[-1]["name"] == "testy://readme"
+
+
+async def test_getting_the_prompt_is_logged(http_client, caplog):
+    with caplog.at_level(logging.INFO, logger="testy"):
+        async with http_client() as client:
+            await client.get_prompt("wiring_report", {})
+
+    records = [json.loads(r.getMessage().removeprefix("CALL "))
+               for r in caplog.records if r.getMessage().startswith("CALL ")]
+    prompts = [r for r in records if r["kind"] == "prompt"]
+    assert prompts, "getting the prompt logged nothing"
+    assert prompts[-1]["name"] == "wiring_report"
+
+
+async def test_tool_calls_are_logged_as_tools(http_client, caplog):
+    # The kind field is what makes the three distinguishable in a log.
+    with caplog.at_level(logging.INFO, logger="testy"):
+        async with http_client() as client:
+            await client.call_tool("ping", {})
+
+    records = [json.loads(r.getMessage().removeprefix("CALL "))
+               for r in caplog.records if r.getMessage().startswith("CALL ")]
+    tools = [r for r in records if r["kind"] == "tool"]
+    assert tools, "the tool call logged nothing"
+    assert tools[-1]["name"] == "ping"

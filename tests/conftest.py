@@ -62,8 +62,8 @@ def http_base():
 def http_client(http_base):
     """Factory for an MCP client over real HTTP.
 
-    `headers` and `tag` mirror how a Beirt leg identifies itself: a
-    header, or a `?tag=` on the URL.
+    `headers` and `tag` mirror how one leg of a dual-conversation
+    client identifies itself: a header, or a `?tag=` on the URL.
     """
 
     def make(headers: dict | None = None, tag: str | None = None) -> Client:

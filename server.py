@@ -10,8 +10,8 @@ Targets (all verified Aug 2026):
     named `search` and `fetch` — both provided.
   - Gemini web app custom apps / Gemini CLI / Gemini Enterprise.
   - Claude (connectors).
-  - Beirt (dual-conversation client): pass ?tag=A / ?tag=B or an
-    X-Beirt-Conversation header; `whoami` reflects it back so each
+  - Any dual-conversation client: pass ?tag=A / ?tag=B or an
+    X-Conversation-Tag header; `whoami` reflects it back so each
     conversation can prove which leg it is.
 
 No auth, no data, no state. Do not grow this into a real service —
@@ -74,7 +74,7 @@ def _client_fingerprint() -> dict:
         "mcp_session_id": headers.get("mcp-session-id", ""),
         "origin": headers.get("origin", ""),
         "x_forwarded_for": _redact_forwarded_for(headers.get("x-forwarded-for", "")),
-        "beirt_conversation": headers.get("x-beirt-conversation", ""),
+        "conversation_tag": headers.get("x-conversation-tag", ""),
     }
     try:
         req = get_http_request()
@@ -86,8 +86,8 @@ def _client_fingerprint() -> dict:
     return fp
 
 
-def _log_call(tool: str, extra: dict | None = None) -> None:
-    rec = {"tool": tool, "client": _client_fingerprint()}
+def _log_call(name: str, extra: dict | None = None, kind: str = "tool") -> None:
+    rec = {"kind": kind, "name": name, "client": _client_fingerprint()}
     if extra:
         rec["args"] = extra
     log.info("CALL %s", json.dumps(rec, default=str))
@@ -155,9 +155,9 @@ def echo(text: str) -> dict:
 def whoami() -> dict:
     """Reflects back what the server sees about the calling client:
     User-Agent, negotiated MCP protocol version, session id, origin,
-    forwarded IP, and any Beirt conversation tag. Use this to confirm
-    WHICH client (ChatGPT / Gemini / Claude / Beirt leg A or B) is
-    actually connected.
+    forwarded IP, and any conversation tag. Use this to confirm WHICH
+    client (ChatGPT / Gemini / Claude, or leg A vs leg B of a
+    dual-conversation client) is actually connected.
     """
     _log_call("whoami")
     return _client_fingerprint()
@@ -226,6 +226,7 @@ def fetch(id: str) -> dict:
 def readme() -> str:
     """Static resource. If your client can list and read this, it
     supports MCP resources (ChatGPT generally will not show it)."""
+    _log_call("testy://readme", kind="resource")
     return (
         "Testy wiring tester. If you are reading this as a resource, "
         "your client supports MCP resources. Marker: TESTY-RESOURCE-OK."
@@ -236,6 +237,7 @@ def readme() -> str:
 def wiring_report() -> str:
     """Prompt template. If your client surfaces this, it supports MCP
     prompts."""
+    _log_call("wiring_report", kind="prompt")
     return (
         "Call ping, echo('test'), whoami, search('anything') and "
         "fetch('doc-1') on the testy server, then report which calls "

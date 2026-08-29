@@ -20,7 +20,7 @@ FINGERPRINT_KEYS = {
     "mcp_session_id",
     "origin",
     "x_forwarded_for",
-    "beirt_conversation",
+    "conversation_tag",
 }
 
 
