@@ -81,7 +81,7 @@ HTTP server (`httpUrl`, which is distinct from the SSE and stdio forms —
 check current CLI docs). Gemini Enterprise wants OAuth or a GCP
 service-account token, so it is out of scope for a no-auth probe.
 
-### Claude — connector verified 2026-08-29, tool calls not yet observed
+### Claude — verified 2026-08-29
 Settings → Connectors now only says *"Connectors have moved to
 Customize"*. The real path:
 
@@ -93,19 +93,15 @@ Customize"*. The real path:
    connector") is informational, with no box to tick.
 4. Enable it per conversation from the composer's **+**, as with ChatGPT.
 
-At the transport level Claude is the mirror image of ChatGPT. It
-declares `clientInfo` name `Anthropic` and **does** send the
-`MCP-Protocol-Version` header, which ChatGPT never does — so `whoami`
-reports a protocol version for Claude and blank for ChatGPT. But its
-User-Agent is a bare `python-httpx/…`, indistinguishable from any other
-Python client, where ChatGPT's is a distinctive `openai-mcp/1.0.0`. Two
-clients, two different fields carrying the identity; that is the case
-for `whoami` reporting all six rather than trusting one.
+Claude arrives as **two different callers**, which is worth knowing
+before you read a log. Registering the connector handshakes from a
+backend — User-Agent `python-httpx/…`, `clientInfo` name `Anthropic`.
+Actual tool calls from a conversation come from User-Agent
+`Claude-User`. Do not identify Claude from the registration request.
 
-Still open: no `CALL` line has yet reached the server from Claude, so
-whether it surfaces the `testy://readme` resource and the
-`wiring_report` prompt — the contrast those two probes exist to measure,
-given ChatGPT ignored both — remains unmeasured.
+It **does** send the `MCP-Protocol-Version` header (`2025-11-25`), which
+ChatGPT never does, so `whoami` reports a protocol version for Claude
+and blank for ChatGPT.
 
 ### Beirt — unverified
 Point each conversation leg at the same `/mcp` URL with header
