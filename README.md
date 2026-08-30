@@ -124,16 +124,22 @@ itself. Both clients were asked directly to read `testy://readme` and use
 | `clientInfo` at `initialize` | `openai-mcp` / `1.0.0` | `Anthropic` / `1.0.0` |
 | `MCP-Protocol-Version` header | never sent | `2025-11-25` |
 | initializes | per connection, not per call | per connection |
-| surfaces resources | **no** — never requested | **no** — never requested |
-| surfaces prompts | **no** — never requested | **no** — never requested |
+| lists resources / prompts | not yet observed | **yes** — both `List…Request`s |
+| reads resource / gets prompt | **no** | **no** |
 | rewrites `search` results | adds `display_url`, `display_title` | no |
 
-So the two capability probes have their answer: **neither major client
-exposes MCP resources or prompts from a custom connector.** Both were
-explicit about it when asked, and the log agrees — the absence is a
-request never made, not a request that failed. Claude went as far as
-trying `fetch(id="readme")` as a workaround, which is in the log as a
-tool call with those arguments.
+The probes' answer is narrower than it first looked. Both Claude
+surfaces — `Anthropic/ClaudeAI` and `claude-code` — **do** call
+`resources/list` and `prompts/list` on connect. What neither ever does
+is `resources/read` or `prompts/get`: the content is enumerated and then
+never fetched, and the model reports it cannot see either. Claude went
+as far as trying `fetch(id="readme")` as a workaround, which is in the
+log as a tool call with those arguments.
+
+Read that gap carefully, because it is easy to get wrong — this README
+did, briefly. `_log_call` fires on read, not on list, so an absence of
+`kind: resource` records means "never read", not "never asked about".
+Listing shows only in FastMCP's own `ListResourcesRequest` log lines.
 
 The identity findings are the argument for `whoami` reporting every
 field rather than trusting one: ChatGPT is identifiable by User-Agent
