@@ -1,7 +1,7 @@
 # <span style="color:#c9a84c">CC Brief — Testy OAuth Probe (`testy-auth`)</span>
 
 <span style="color:#888">**Repo:**</span> `todd427/testy`
-<span style="color:#888">**Branch:**</span> `master`
+<span style="color:#888">**Branch:**</span> `main`
 <span style="color:#888">**Date:**</span> 23 September 2026
 <span style="color:#888">**Origin:**</span> Chat session 2026-09-23. Mnemos brief `todd427/mnemos:docs/mnemos/cc_brief_oauth_owner_gate_and_provenance.md` (commits `9cd54ad`, `12f23a4`) leaves open what ChatGPT (and Gemini) actually send during OAuth. Testy is no-auth, so it never sees that handshake. This brief adds a probe that does.
 
