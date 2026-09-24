@@ -151,6 +151,49 @@ field rather than trusting one: ChatGPT is identifiable by User-Agent
 and gives nothing in the protocol header, Claude is the reverse at
 registration time, and neither populates the session id.
 
+## <span style="color:#2e86c1">testy-auth (OAuth probe)</span>
+
+A second deployment, `probe.py` on app `testy-auth-foxxelabs`, whose only job
+is to **log what an MCP client does during OAuth**. Same SDK authorization-server
+code Mnemos runs, so what it observes transfers there.
+
+It is a separate Fly app, not a second path: an `MCPServer` carries one auth
+configuration and OAuth discovery lives at the root, so an authorization server
+on the no-auth host would change what every no-auth client sees — contaminating
+the thing Testy exists to observe. `testy-foxxelabs` is untouched.
+
+Three things about it are deliberate and would be wrong anywhere else:
+
+- **It auto-approves every client.** Safe only because the token it issues
+  unlocks three read-only probe tools and no data. Mnemos must never do this.
+- **OAuth state is in memory and is never persisted.** No volume, no file.
+  Every stop wipes it. That is not a limitation to work around — what a client
+  does when the server has forgotten it is one of the questions.
+- **Exactly one machine** (`--ha=false` on the first deploy). The dance is
+  three separate requests; two machines behind the proxy would let `/register`
+  land on one and `/authorize` on the other, producing an invalid-client error
+  that reads as client behaviour but is our own artefact.
+
+Env: `TESTY_PROBE_ISSUER` (default `https://testy-auth-foxxelabs.fly.dev`),
+`TESTY_PROBE_ISS` (`1` advertises RFC 9207 `authorization_response_iss_parameter_supported`
+and appends `iss` to the authorization redirect; default `0`).
+
+Read the log, not the responses. One line per event on logger `testy`, tagged
+`BOOT` / `HTTP` / `REG` / `REG_OK` / `AUTHZ` / `TOKEN` / `UNKNOWN` / `REVOKE` /
+`INIT` / `CALL`, so `fly logs -a testy-auth-foxxelabs | grep AUTHZ` works.
+Codes, tokens, verifiers, `state` values, secrets and full client ids are never
+logged; the `TOKEN` tap reports form field *names* plus an allow-list of values,
+so a field a client adds later cannot leak by default.
+
+```
+fly apps create testy-auth-foxxelabs
+fly deploy -c fly.probe.toml --ha=false --remote-only --depot=false
+fly machine list -a testy-auth-foxxelabs     # must show ONE machine
+```
+
+Then run each client's connect-and-call in one sitting, per the runbook in
+`docs/BRIEF-oauth-probe.md` §4, and write up `docs/FINDINGS-oauth-probe.md`.
+
 ## <span style="color:#2e86c1">Deploy</span>
 
 Set `app` in `fly.toml` to your own name first, then:

@@ -24,7 +24,10 @@ server code — the initialize request is handled in its own throwaway
 session and nothing retains what it declared.
 
 No auth, no data, no state. Do not grow this into a real service —
-that is foxxe-mcp's job.
+that is foxxe-mcp's job. The OAuth probe is a SEPARATE app (probe.py,
+testy-auth-foxxelabs) for that reason: it observes the OAuth handshake and
+logs it, and putting an authorization server on this host would change what
+every no-auth client sees here.
 """
 
 from datetime import datetime, timezone
@@ -35,9 +38,10 @@ from mcp.types import ToolAnnotations
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from testy_common import BodyTap, SERVER_NAME, client_fingerprint, log_call, log_initialize
-
-VERSION = "0.2.0"
+import testy_common
+from testy_common import (
+    BodyTap, SERVER_NAME, VERSION, log_call, log_initialize, request_of,
+)
 
 mcp = MCPServer(
     SERVER_NAME,
@@ -56,47 +60,14 @@ mcp = MCPServer(
 # assume the worst — ChatGPT labelled `echo` PUBLIC WRITE / OPEN WORLD
 # / DESTRUCTIVE — and the deep-research path expects `search` and
 # `fetch` to declare themselves read-only.
-READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+READ_ONLY = testy_common.READ_ONLY
 
-
-def _request(ctx: Context):
-    """The Starlette request behind this call, or None off the HTTP path."""
-    return getattr(ctx.request_context, "request", None)
-
-
-@mcp.tool(annotations=READ_ONLY)
-def ping(ctx: Context) -> dict[str, Any]:
-    """Liveness check. Returns server identity and UTC time."""
-    log_call("ping", request=_request(ctx))
-    return {
-        "server": SERVER_NAME,
-        "version": VERSION,
-        "time_utc": datetime.now(timezone.utc).isoformat(),
-        "message": "pong",
-    }
-
-
-@mcp.tool(annotations=READ_ONLY)
-def echo(text: str, ctx: Context) -> dict[str, Any]:
-    """Round-trip test: returns the text, its reverse, and its length.
-
-    Proves argument marshalling works in both directions.
-    """
-    log_call("echo", {"text": text}, request=_request(ctx))
-    return {"text": text, "reversed": text[::-1], "length": len(text)}
-
-
-@mcp.tool(annotations=READ_ONLY)
-def whoami(ctx: Context) -> dict[str, Any]:
-    """Reflects back what the server sees about the calling client:
-    User-Agent, negotiated MCP protocol version, session id, origin,
-    forwarded IP, and any conversation tag. Use this to confirm WHICH
-    client (ChatGPT / Gemini / Claude, or leg A vs leg B of a
-    dual-conversation client) is actually connected.
-    """
-    req = _request(ctx)
-    log_call("whoami", request=req)
-    return client_fingerprint(req)
+# ping, echo and whoami live in testy_common so the OAuth probe can register
+# the same functions. The SDK's decorator returns the original function, so
+# calling it here is the same as decorating there.
+ping = mcp.tool(annotations=READ_ONLY)(testy_common.ping)
+echo = mcp.tool(annotations=READ_ONLY)(testy_common.echo)
+whoami = mcp.tool(annotations=READ_ONLY)(testy_common.whoami)
 
 
 # Tiny canned corpus so `search`/`fetch` satisfy ChatGPT's
@@ -127,7 +98,7 @@ def search(query: str, ctx: Context) -> dict[str, Any]:
     query (this is a wiring test, not a search engine). Shape matches
     ChatGPT's deep-research `search` requirement.
     """
-    log_call("search", {"query": query}, request=_request(ctx))
+    log_call("search", {"query": query}, request=request_of(ctx))
     return {
         "results": [
             {"id": doc_id, "title": d["title"], "url": d["url"]}
@@ -141,7 +112,7 @@ def fetch(id: str, ctx: Context) -> dict[str, Any]:
     """Fetch one tester document by id. Shape matches ChatGPT's
     deep-research `fetch` requirement.
     """
-    log_call("fetch", {"id": id}, request=_request(ctx))
+    log_call("fetch", {"id": id}, request=request_of(ctx))
     d = _CORPUS.get(id)
     if d is None:
         return {"id": id, "title": "not found", "text": "", "url": "", "metadata": {}}

@@ -1,0 +1,44 @@
+# testy-auth — the OAuth probe. Separate app from testy-foxxelabs on purpose
+# (see probe.py's docstring). Deploy with:
+#
+#   fly apps create testy-auth-foxxelabs
+#   fly deploy -c fly.probe.toml --ha=false --remote-only --depot=false
+#
+# --ha=false on the FIRST deploy matters: Fly otherwise creates two machines,
+# and the OAuth dance is three separate requests. Registration landing on one
+# machine and authorization on the other yields an invalid-client error that
+# reads as client behaviour but is our own doing. Later deploys update the
+# existing machine and do not add one. Confirm with:
+#
+#   fly machine list -a testy-auth-foxxelabs
+#
+# No volume, deliberately. OAuth state is in memory and is meant to be lost on
+# every stop — that loss is question 7 of the brief.
+
+app = "testy-auth-foxxelabs"
+primary_region = "lhr"
+
+[build]
+
+[processes]
+  app = "python probe.py"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "10s"
+  method = "GET"
+  path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  processes = ["app"]
