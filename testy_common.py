@@ -240,6 +240,13 @@ def whoami(ctx: Context) -> dict[str, Any]:
 # enough to correlate two lines and not enough to replay.
 _TOKEN_VALUE_KEYS = {"grant_type", "resource", "redirect_uri", "scope"}
 
+# Query-string values safe to record outside .well-known. code_challenge_method
+# is here because it answers question 3 and is visible NOWHERE else: the SDK
+# validates it in its /authorize handler and AuthorizationParams does not carry
+# it, so the provider can never log it. state, code, client_id and
+# code_challenge are deliberately absent.
+_QUERY_VALUE_KEYS = {"response_type", "code_challenge_method", "scope", "resource"}
+
 
 class HttpLogger:
     """Outermost pure-ASGI middleware: one HTTP line per request.
@@ -275,7 +282,10 @@ class HttpLogger:
                 # Values only for discovery paths, where they are the finding.
                 # Elsewhere the keys alone say what was asked without risking
                 # a code or a state value in the log.
-                "query": query if path.startswith("/.well-known") else sorted(query),
+                "query": (query if path.startswith("/.well-known")
+                          else sorted(query)),
+                "query_values": ({k: query[k] for k in _QUERY_VALUE_KEYS if k in query}
+                                 if not path.startswith("/.well-known") else None),
                 "status": status["code"],
                 "user_agent": fp["user_agent"],
                 "x_forwarded_for": fp["x_forwarded_for"],

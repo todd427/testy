@@ -455,3 +455,24 @@ def test_iss_toggle_advertises_and_sends_iss(iss_base):
     }, follow_redirects=False, timeout=10)
     q = parse_qs(urlparse(r.headers["location"]).query)
     assert q["iss"] == [mod.ISSUER]
+
+
+def test_http_logger_captures_the_code_challenge_method(base, caplog):
+    # Question 3 wants code_challenge_method. The provider cannot see it —
+    # AuthorizationParams has no such field — so this is the only place it
+    # is recorded, and the only reason query values are kept off .well-known.
+    client = register(base).json()
+    _, challenge = pkce()
+    with caplog.at_level(logging.INFO, logger="testy"):
+        httpx.get(f"{base}/authorize", params={
+            "response_type": "code", "client_id": client["client_id"],
+            "redirect_uri": REDIRECT, "code_challenge": challenge,
+            "code_challenge_method": "S256", "state": "secret-state", "scope": "mcp",
+        }, follow_redirects=False, timeout=10)
+    authz = wait_tagged(caplog, "HTTP", lambda line: line["path"] == "/authorize")[-1]
+    assert authz["query_values"]["code_challenge_method"] == "S256"
+    assert authz["query_values"]["response_type"] == "code"
+    # and still nothing replayable
+    assert "secret-state" not in json.dumps(authz)
+    assert challenge not in json.dumps(authz)
+    assert client["client_id"] not in json.dumps(authz)

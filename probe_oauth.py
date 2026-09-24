@@ -141,7 +141,10 @@ class ProbeOAuthProvider(OAuthAuthorizationServerProvider):
               resource=str(resource) if resource else None,
               state_present=state is not None,
               code_challenge_present=challenge is not None,
-              code_challenge_method=getattr(params, "code_challenge_method", None),
+              # No code_challenge_method here: AuthorizationParams does not
+              # carry it (the SDK's /authorize handler validates it and drops
+              # it), so it would log null forever and read as a client that
+              # omitted it. HttpLogger records the real value off the query.
               iss_toggle=self.send_iss)
 
         if not redirect_uri:
@@ -156,7 +159,9 @@ class ProbeOAuthProvider(OAuthAuthorizationServerProvider):
             "redirect_uri": redirect_uri,
             "scopes": scopes,
             "code_challenge": str(challenge) if challenge is not None else None,
-            "code_challenge_method": str(getattr(params, "code_challenge_method", "S256") or "S256"),
+            # Always S256: the metadata advertises only S256 and the SDK
+            # rejects anything else before this runs.
+            "code_challenge_method": "S256",
             "expires_at": time.time() + CODE_LIFETIME,
         }
 
