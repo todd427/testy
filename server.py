@@ -4,6 +4,10 @@ Testy — MCP wiring tester.
 One remote Streamable HTTP endpoint whose only job is to prove an MCP
 client is wired up correctly, and to tell you *which* client connected.
 
+Stack: foxxe-mcp, which runs the MCP SDK's `MCPServer` — the same stack as
+every other server in the fleet. That is the point: an observation made
+here transfers to the fleet only if Testy runs what the fleet runs.
+
 Targets (all verified Aug 2026):
   - ChatGPT developer mode: remote HTTPS, Streamable HTTP, no-auth OK.
     Deep-research/data-only path additionally requires read-only tools
@@ -14,30 +18,28 @@ Targets (all verified Aug 2026):
     X-Conversation-Tag header; `whoami` reflects it back so each
     conversation can prove which leg it is.
 
+The `INIT` log line comes from an ASGI body tap rather than a server hook,
+because a stateless SDK session never exposes the client's `clientInfo` to
+server code — the initialize request is handled in its own throwaway
+session and nothing retains what it declared.
+
 No auth, no data, no state. Do not grow this into a real service —
 that is foxxe-mcp's job.
 """
 
-import json
-import logging
-import sys
 from datetime import datetime, timezone
+from typing import Any
 
-from fastmcp import FastMCP
-from fastmcp.server.dependencies import get_http_headers, get_http_request
-from fastmcp.server.middleware import Middleware
+from foxxe_mcp import Context, MCPServer, build_app, serve
+from mcp.types import ToolAnnotations
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 
-SERVER_NAME = "testy"
-VERSION = "0.1.0"
+from testy_common import BodyTap, SERVER_NAME, client_fingerprint, log_call, log_initialize
 
-logging.basicConfig(
-    stream=sys.stdout,
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
-log = logging.getLogger(SERVER_NAME)
+VERSION = "0.2.0"
 
-mcp = FastMCP(
+mcp = MCPServer(
     SERVER_NAME,
     instructions=(
         "Wiring tester. Call `ping` to prove connectivity, `echo` to prove "
@@ -47,78 +49,6 @@ mcp = FastMCP(
     ),
 )
 
-
-def _redact_forwarded_for(value: str) -> str:
-    """Drop the originating address from an X-Forwarded-For chain.
-
-    ChatGPT forwards the end user's real IP as the leftmost hop, so an
-    unredacted log accumulates a record of where this server's users
-    sit. Testy exists to identify which *client* connected, not to
-    collect addresses, so the leftmost hop is replaced. The proxy hops
-    are kept — they still show the request path.
-    """
-    hops = [hop.strip() for hop in value.split(",") if hop.strip()]
-    if not hops:
-        return ""
-    return ", ".join(["<redacted>"] + hops[1:])
-
-
-def _client_fingerprint() -> dict:
-    """What the server can see about the calling client."""
-    # `mcp-session-id` is in FastMCP's default strip-list, so it has to
-    # be asked for by name or the field below is always blank.
-    headers = get_http_headers(include={"mcp-session-id"}) or {}
-    fp = {
-        "user_agent": headers.get("user-agent", ""),
-        "mcp_protocol_version": headers.get("mcp-protocol-version", ""),
-        "mcp_session_id": headers.get("mcp-session-id", ""),
-        "origin": headers.get("origin", ""),
-        "x_forwarded_for": _redact_forwarded_for(headers.get("x-forwarded-for", "")),
-        "conversation_tag": headers.get("x-conversation-tag", ""),
-    }
-    try:
-        req = get_http_request()
-        if req is not None:
-            fp["path"] = str(req.url.path)
-            fp["query"] = dict(req.query_params)
-    except Exception:
-        pass
-    return fp
-
-
-def _log_call(name: str, extra: dict | None = None, kind: str = "tool") -> None:
-    rec = {"kind": kind, "name": name, "client": _client_fingerprint()}
-    if extra:
-        rec["args"] = extra
-    log.info("CALL %s", json.dumps(rec, default=str))
-
-
-class InitializeLogger(Middleware):
-    """Log what a client declares when it initializes.
-
-    ChatGPT (`openai-mcp/1.0.0`) never sends the `MCP-Protocol-Version`
-    header on later requests, so `whoami` reports "" for it. The
-    initialize request carries the version and the client's own name
-    either way, and on a stateless server this hook is the only place
-    that information is ever visible — nothing retains it afterwards.
-    """
-
-    async def on_initialize(self, context, call_next):
-        params = getattr(context.message, "params", None)
-        info = getattr(params, "clientInfo", None)
-        rec = {
-            "protocol_version": getattr(params, "protocolVersion", "") or "",
-            "client_name": getattr(info, "name", "") or "",
-            "client_version": getattr(info, "version", "") or "",
-            "http": _client_fingerprint(),
-        }
-        log.info("INIT %s", json.dumps(rec, default=str))
-        return await call_next(context)
-
-
-mcp.add_middleware(InitializeLogger())
-
-
 # ---------------------------------------------------------------- tools
 
 # Every tool here is a probe: it reads, it never writes, and it never
@@ -126,13 +56,18 @@ mcp.add_middleware(InitializeLogger())
 # assume the worst — ChatGPT labelled `echo` PUBLIC WRITE / OPEN WORLD
 # / DESTRUCTIVE — and the deep-research path expects `search` and
 # `fetch` to declare themselves read-only.
-READ_ONLY = {"readOnlyHint": True, "openWorldHint": False}
+READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+
+
+def _request(ctx: Context):
+    """The Starlette request behind this call, or None off the HTTP path."""
+    return getattr(ctx.request_context, "request", None)
 
 
 @mcp.tool(annotations=READ_ONLY)
-def ping() -> dict:
+def ping(ctx: Context) -> dict[str, Any]:
     """Liveness check. Returns server identity and UTC time."""
-    _log_call("ping")
+    log_call("ping", request=_request(ctx))
     return {
         "server": SERVER_NAME,
         "version": VERSION,
@@ -142,25 +77,26 @@ def ping() -> dict:
 
 
 @mcp.tool(annotations=READ_ONLY)
-def echo(text: str) -> dict:
+def echo(text: str, ctx: Context) -> dict[str, Any]:
     """Round-trip test: returns the text, its reverse, and its length.
 
     Proves argument marshalling works in both directions.
     """
-    _log_call("echo", {"text": text})
+    log_call("echo", {"text": text}, request=_request(ctx))
     return {"text": text, "reversed": text[::-1], "length": len(text)}
 
 
 @mcp.tool(annotations=READ_ONLY)
-def whoami() -> dict:
+def whoami(ctx: Context) -> dict[str, Any]:
     """Reflects back what the server sees about the calling client:
     User-Agent, negotiated MCP protocol version, session id, origin,
     forwarded IP, and any conversation tag. Use this to confirm WHICH
     client (ChatGPT / Gemini / Claude, or leg A vs leg B of a
     dual-conversation client) is actually connected.
     """
-    _log_call("whoami")
-    return _client_fingerprint()
+    req = _request(ctx)
+    log_call("whoami", request=req)
+    return client_fingerprint(req)
 
 
 # Tiny canned corpus so `search`/`fetch` satisfy ChatGPT's
@@ -186,12 +122,12 @@ _CORPUS = {
 
 
 @mcp.tool(annotations=READ_ONLY)
-def search(query: str) -> dict:
+def search(query: str, ctx: Context) -> dict[str, Any]:
     """Search the tester corpus. Returns all documents regardless of
     query (this is a wiring test, not a search engine). Shape matches
     ChatGPT's deep-research `search` requirement.
     """
-    _log_call("search", {"query": query})
+    log_call("search", {"query": query}, request=_request(ctx))
     return {
         "results": [
             {"id": doc_id, "title": d["title"], "url": d["url"]}
@@ -201,11 +137,11 @@ def search(query: str) -> dict:
 
 
 @mcp.tool(annotations=READ_ONLY)
-def fetch(id: str) -> dict:
+def fetch(id: str, ctx: Context) -> dict[str, Any]:
     """Fetch one tester document by id. Shape matches ChatGPT's
     deep-research `fetch` requirement.
     """
-    _log_call("fetch", {"id": id})
+    log_call("fetch", {"id": id}, request=_request(ctx))
     d = _CORPUS.get(id)
     if d is None:
         return {"id": id, "title": "not found", "text": "", "url": "", "metadata": {}}
@@ -226,18 +162,18 @@ def fetch(id: str) -> dict:
 def readme() -> str:
     """Static resource. If your client can list and read this, it
     supports MCP resources (ChatGPT generally will not show it)."""
-    _log_call("testy://readme", kind="resource")
+    log_call("testy://readme", kind="resource")
     return (
         "Testy wiring tester. If you are reading this as a resource, "
         "your client supports MCP resources. Marker: TESTY-RESOURCE-OK."
     )
 
 
-@mcp.prompt
+@mcp.prompt()
 def wiring_report() -> str:
     """Prompt template. If your client surfaces this, it supports MCP
     prompts."""
-    _log_call("wiring_report", kind="prompt")
+    log_call("wiring_report", kind="prompt")
     return (
         "Call ping, echo('test'), whoami, search('anything') and "
         "fetch('doc-1') on the testy server, then report which calls "
@@ -248,17 +184,21 @@ def wiring_report() -> str:
 # ---------------------------------------------------------------- app
 
 
-@mcp.custom_route("/healthz", methods=["GET"])
 async def healthz(request):
-    from starlette.responses import JSONResponse
-
+    """Alias kept for one release in case anything external still probes
+    it. fly.toml now checks /health, which build_app provides. Remove this
+    in the next change after the foxxe-mcp migration."""
     return JSONResponse({"ok": True, "server": SERVER_NAME, "version": VERSION})
 
 
-app = mcp.http_app(path="/mcp", stateless_http=True, transport="http")
+# Built at module level because the tests import server.app.
+app = build_app(
+    mcp,
+    stateless_http=True,
+    routes=[Route("/healthz", healthz, methods=["GET"])],
+)
+app.add_middleware(BodyTap, on_body=log_initialize)
 
 
 if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    serve(mcp, app=app)

@@ -3,9 +3,14 @@
 One no-auth, stateless, Streamable HTTP MCP server whose only job is to
 prove a client is wired up, and to identify **which** client connected.
 
+Built on [foxxe-mcp](https://pypi.org/project/foxxe-mcp/), which runs the
+MCP SDK's `MCPServer` — the same stack as the rest of the fleet, so what
+you observe here is what a fleet server would do.
+
 **Deploy your own** — it takes one `fly deploy` and the whole point is
 that the endpoint is yours. See [Deploy](#deploy) below. Your endpoint is
-then `https://<your-app>.fly.dev/mcp`, health at `/healthz`.
+then `https://<your-app>.fly.dev/mcp`, health at `/health` and the
+running stack at `/version`.
 
 There is a hosted instance at `https://testy-foxxelabs.fly.dev/mcp` you
 can point a client at to try it. Treat it as a best-effort demo: it is a
@@ -139,7 +144,7 @@ log as a tool call with those arguments.
 Read that gap carefully, because it is easy to get wrong — this README
 did, briefly. `_log_call` fires on read, not on list, so an absence of
 `kind: resource` records means "never read", not "never asked about".
-Listing shows only in FastMCP's own `ListResourcesRequest` log lines.
+Listing shows only in the SDK's own `ListResourcesRequest` log lines.
 
 The identity findings are the argument for `whoami` reporting every
 field rather than trusting one: ChatGPT is identifiable by User-Agent
@@ -153,7 +158,7 @@ Set `app` in `fly.toml` to your own name first, then:
 ```
 fly apps create <your-app>
 fly deploy
-curl https://<your-app>.fly.dev/healthz
+curl https://<your-app>.fly.dev/health
 ```
 
 No secrets, no volumes, no database — there is nothing else to set up.
@@ -169,7 +174,8 @@ pytest
 marshalling, the `search`→`fetch` round trip, the resource and prompt
 probes). `tests/test_http.py` runs the real ASGI app under uvicorn on an
 ephemeral port, because `whoami` reads HTTP headers — that is where the
-conversation tags and `/healthz` are checked.
+conversation tags, the health and version routes, and the ASGI body tap
+are checked.
 
 ## <span style="color:#2e86c1">Scope guard</span>
 
